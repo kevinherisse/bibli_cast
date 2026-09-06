@@ -1,0 +1,24 @@
+{
+  "name": "La bibliothèque de Laurent",
+  "short_name": "La bibliothèque de Laurent",
+  "description": "Parcourez et réservez un livre de la collection à garder en souvenir.",
+  "start_url": "/gallery",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f9fafb",
+  "theme_color": "#2563eb",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
