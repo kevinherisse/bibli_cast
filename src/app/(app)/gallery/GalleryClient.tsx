@@ -7,9 +7,18 @@ import { useBookData } from "@/lib/useBookData";
 import { humanizeClaimError } from "@/lib/errors";
 import type { Claim } from "@/lib/types";
 
+type SearchField = "all" | "title" | "author";
+
+const SEARCH_FIELD_LABELS: Record<SearchField, string> = {
+  all: "Tout",
+  title: "Titre",
+  author: "Auteur",
+};
+
 export default function GalleryClient({ myEmail }: { myEmail: string }) {
   const { books, claims, loading, error, setClaims } = useBookData();
   const [search, setSearch] = useState("");
+  const [searchField, setSearchField] = useState<SearchField>("all");
   const [category, setCategory] = useState<string | null>(null);
 
   const categories = useMemo(() => {
@@ -33,11 +42,13 @@ export default function GalleryClient({ myEmail }: { myEmail: string }) {
     return books.filter((book) => {
       if (category && book.category !== category) return false;
       if (!q) return true;
-      return (
-        book.title.toLowerCase().includes(q) || (book.author ?? "").toLowerCase().includes(q)
-      );
+      const title = book.title.toLowerCase();
+      const author = (book.author ?? "").toLowerCase();
+      if (searchField === "title") return title.includes(q);
+      if (searchField === "author") return author.includes(q);
+      return title.includes(q) || author.includes(q);
     });
-  }, [books, search, category]);
+  }, [books, search, searchField, category]);
 
   async function handleClaim(bookId: string, note: string) {
     const supabase = createClient();
@@ -60,9 +71,17 @@ export default function GalleryClient({ myEmail }: { myEmail: string }) {
     return { ok: true };
   }
 
+  const hasActiveFilter = search.trim().length > 0 || category !== null;
+
   return (
     <div className="space-y-4">
       <div className="space-y-2">
+        <p className="text-sm text-gray-600">
+          {hasActiveFilter
+            ? `${filteredBooks.length} sur ${books.length} livre${books.length === 1 ? "" : "s"}`
+            : `${books.length} livre${books.length === 1 ? "" : "s"} dans la collection`}
+        </p>
+
         <input
           type="search"
           value={search}
@@ -70,6 +89,23 @@ export default function GalleryClient({ myEmail }: { myEmail: string }) {
           placeholder="Rechercher par titre ou auteur…"
           className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-base focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
         />
+
+        <div className="flex gap-1.5">
+          {(["all", "title", "author"] as const).map((field) => (
+            <button
+              key={field}
+              onClick={() => setSearchField(field)}
+              className={`rounded-full px-3 py-1.5 text-xs font-medium ${
+                searchField === field
+                  ? "bg-blue-600 text-white"
+                  : "bg-white text-gray-600 border border-gray-200"
+              }`}
+            >
+              {SEARCH_FIELD_LABELS[field]}
+            </button>
+          ))}
+        </div>
+
         {categories.length > 0 && (
           <div className="flex gap-1.5 overflow-x-auto pb-1">
             <button

@@ -53,8 +53,9 @@ async function lookupOpenLibrary(isbn: string): Promise<Meta> {
   let res: Response;
   try {
     // Open Library's own latency is highly variable in practice (observed
-    // 2-8s round trips) — give it real room before giving up.
-    res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+    // 2-8s round trips) — give it real room before giving up, but not so
+    // much that it dominates the overall lookup budget (see lookupIsbn).
+    res = await fetch(url, { signal: AbortSignal.timeout(10000) });
   } catch (err) {
     // Open Library's API is occasionally flaky (timeouts, connection resets).
     console.error("Open Library lookup failed:", err);
@@ -92,7 +93,7 @@ async function lookupBnfCover(isbn: string): Promise<Cover> {
   try {
     const res = await fetch(`https://couverture.geobib.fr/api/v1/${isbn}/medium`, {
       method: "HEAD",
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(6000),
     });
     if (!res.ok) return { cover_url: null, thumbnail_url: null };
 
@@ -127,7 +128,7 @@ async function lookupBnfMetadata(isbn: string): Promise<{ title: string | null; 
   try {
     const query = encodeURIComponent(`bib.isbn all "${isbn}"`);
     const url = `https://catalogue.bnf.fr/api/SRU?version=1.2&operation=searchRetrieve&query=${query}&recordSchema=dublincore&maximumRecords=1`;
-    const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
+    const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
     if (!res.ok) return empty;
 
     const xml = bnfXmlParser.parse(await res.text());
@@ -156,7 +157,7 @@ async function lookupGoogleBooks(isbn: string): Promise<Meta> {
   try {
     const res = await fetch(
       `https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}&country=FR`,
-      { signal: AbortSignal.timeout(8000) },
+      { signal: AbortSignal.timeout(6000) },
     );
     if (!res.ok) return EMPTY_META;
 
@@ -181,28 +182,34 @@ async function lookupGoogleBooks(isbn: string): Promise<Meta> {
   }
 }
 
-// Looks up a book by ISBN, trying Open Library first, then filling in
-// whatever's still missing from BnF (cover, and — if Open Library had no
-// record at all — title/author, since BnF's catalog is authoritative for
-// French titles) and finally Google Books for anything still missing.
+// Looks up a book by ISBN across Open Library, BnF (cover + metadata), and
+// Google Books, then merges whatever each source found by priority.
+//
+// The first three run IN PARALLEL, not sequentially — chaining four external
+// APIs one after another has a worst case of ~30-40s (each has its own
+// timeout), which is both a terrible wait for whoever's scanning and a real
+// risk of tripping a serverless function's execution time limit. Running
+// them concurrently caps the worst case at whichever of the three is
+// slowest, rather than the sum of all three.
+//
+// Google Books is called separately, only if still needed, because its
+// anonymous tier has a tight per-IP daily quota — no sense spending it on
+// scans the first three sources already answered.
 export async function lookupIsbn(rawIsbn: string): Promise<OpenLibraryBook | null> {
   const isbn = rawIsbn.replace(/[^0-9Xx]/g, "");
   if (!isbn) return null;
 
-  const ol = await lookupOpenLibrary(isbn);
-  let { title, author, category, cover_url, thumbnail_url } = ol;
+  const [ol, bnfCover, bnfMeta] = await Promise.all([
+    lookupOpenLibrary(isbn),
+    lookupBnfCover(isbn),
+    lookupBnfMetadata(isbn),
+  ]);
 
-  if (!cover_url && !thumbnail_url) {
-    const bnf = await lookupBnfCover(isbn);
-    cover_url = bnf.cover_url;
-    thumbnail_url = bnf.thumbnail_url;
-  }
-
-  if (!title) {
-    const bnf = await lookupBnfMetadata(isbn);
-    title = bnf.title;
-    author = author ?? bnf.author;
-  }
+  let title = ol.title ?? bnfMeta.title;
+  let author = ol.author ?? bnfMeta.author;
+  let category = ol.category;
+  let cover_url = ol.cover_url ?? bnfCover.cover_url;
+  let thumbnail_url = ol.thumbnail_url ?? bnfCover.thumbnail_url;
 
   if (!title || !category || (!cover_url && !thumbnail_url)) {
     const google = await lookupGoogleBooks(isbn);

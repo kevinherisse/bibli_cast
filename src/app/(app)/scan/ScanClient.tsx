@@ -98,6 +98,11 @@ export default function ScanClient() {
           Html5QrcodeSupportedFormats.UPC_A,
           Html5QrcodeSupportedFormats.UPC_E,
         ],
+        // Use the browser's native (hardware-accelerated) barcode detector
+        // where available — Chrome/Android supports it, so this is faster
+        // there. Safari has no native BarcodeDetector, so this is a no-op on
+        // every iPhone and falls back to the JS decoder below either way.
+        useBarCodeDetectorIfSupported: true,
         verbose: false,
       });
       scannerRef.current = scanner;
@@ -105,7 +110,26 @@ export default function ScanClient() {
       try {
         await scanner.start(
           { facingMode: "environment" },
-          { fps: 10, qrbox: { width: 260, height: 150 } },
+          {
+            fps: 10,
+            qrbox: { width: 260, height: 150 },
+            // A rear camera never produces a mirrored feed, so skip the
+            // extra flipped-image decode pass — roughly halves the
+            // per-frame CPU cost, which matters most on older devices.
+            disableFlip: true,
+            // Cap the capture resolution: the JS decoder has to process
+            // every pixel in each frame, and older iPhones' cameras can
+            // otherwise hand it a much larger frame than a barcode needs,
+            // making weaker CPUs disproportionately slower to keep up.
+            // Note: when videoConstraints is set it REPLACES the camera
+            // selector above entirely (doesn't merge with it), so facingMode
+            // has to be repeated here or rear-camera selection silently breaks.
+            videoConstraints: {
+              facingMode: "environment",
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+            },
+          },
           (decodedText) => {
             if (handledRef.current) return;
             handledRef.current = true;

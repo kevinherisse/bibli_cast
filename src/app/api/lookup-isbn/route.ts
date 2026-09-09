@@ -2,6 +2,12 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { lookupIsbn } from "@/lib/bookLookup";
 
+// lookupIsbn calls out to several external book/cover APIs. Even running
+// them in parallel, a slow one can take several seconds — give this route
+// headroom beyond Vercel's default (10s on Hobby without Fluid Compute)
+// rather than risk the function getting killed mid-lookup.
+export const maxDuration = 30;
+
 export async function GET(request: NextRequest) {
   const user = await getCurrentUser();
   if (!user || (user.role !== "scanner" && user.role !== "admin")) {
