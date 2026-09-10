@@ -117,17 +117,29 @@ export default function ScanClient() {
             // extra flipped-image decode pass — roughly halves the
             // per-frame CPU cost, which matters most on older devices.
             disableFlip: true,
-            // Cap the capture resolution: the JS decoder has to process
-            // every pixel in each frame, and older iPhones' cameras can
-            // otherwise hand it a much larger frame than a barcode needs,
-            // making weaker CPUs disproportionately slower to keep up.
+            // Cap the capture resolution. Safari has no native
+            // BarcodeDetector, so every frame goes through html5-qrcode's
+            // bundled pure-JS ZXing port — there's no WASM or hardware
+            // acceleration backing it on iOS. Its per-frame cost scales with
+            // the number of pixels it has to scan, and that pixel count is
+            // NOT the qrbox size on screen: html5-qrcode maps the qrbox
+            // (defined in on-screen CSS pixels) up to the camera's native
+            // resolution before decoding, so a higher capture resolution
+            // directly multiplies the work done on every single frame. On
+            // an older iPhone's weaker single-core JS performance, 1280x720
+            // was still enough pixels per frame to make each decode take
+            // long enough that the loop couldn't keep up with hand motion —
+            // read as "slow" and "only partially scanned". 640x480 cuts
+            // that per-frame pixel count (and so the decode time) by ~4x
+            // while remaining far more resolution than an EAN-13 barcode
+            // needs to resolve at normal scanning distance.
             // Note: when videoConstraints is set it REPLACES the camera
             // selector above entirely (doesn't merge with it), so facingMode
             // has to be repeated here or rear-camera selection silently breaks.
             videoConstraints: {
               facingMode: "environment",
-              width: { ideal: 1280 },
-              height: { ideal: 720 },
+              width: { ideal: 640 },
+              height: { ideal: 480 },
             },
           },
           (decodedText) => {
