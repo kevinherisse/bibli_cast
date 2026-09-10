@@ -92,12 +92,13 @@ export default function ScanClient() {
       if (cancelled) return;
 
       const scanner = new Html5Qrcode("reader", {
-        formatsToSupport: [
-          Html5QrcodeSupportedFormats.EAN_13,
-          Html5QrcodeSupportedFormats.EAN_8,
-          Html5QrcodeSupportedFormats.UPC_A,
-          Html5QrcodeSupportedFormats.UPC_E,
-        ],
+        // ISBNs are only ever encoded as EAN-13 (the "Bookland" 978/979
+        // prefix). EAN-8/UPC-A/UPC-E can't carry an ISBN at all, but a book's
+        // back cover often has a second barcode nearby (a price add-on, a
+        // distributor code, a library sticker) in one of those formats —
+        // decoding that instead of the real ISBN barcode was producing a
+        // valid-looking but wrong number, which is why lookups kept failing.
+        formatsToSupport: [Html5QrcodeSupportedFormats.EAN_13],
         // Use the browser's native (hardware-accelerated) barcode detector
         // where available — Chrome/Android supports it, so this is faster
         // there. Safari has no native BarcodeDetector, so this is a no-op on
@@ -144,6 +145,12 @@ export default function ScanClient() {
           },
           (decodedText) => {
             if (handledRef.current) return;
+            // Even restricted to EAN-13, a second non-ISBN barcode on the
+            // cover (price add-on, distributor code) can still decode
+            // successfully — only a Bookland-prefixed number is really an
+            // ISBN, so reject anything else and keep scanning instead of
+            // locking onto a wrong result.
+            if (!/^(?:978|979)\d{10}$/.test(decodedText)) return;
             handledRef.current = true;
             handleScanned(decodedText);
           },
